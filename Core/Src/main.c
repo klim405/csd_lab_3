@@ -24,7 +24,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "ring_buffer.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -39,13 +39,20 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+#define TX6_BUFFER_SIZE 100
 
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+char __uart6_tx_buff[TX6_BUFFER_SIZE];
+RingBuffer uart6_tx_buff;
+bool UART6_TX_IsReady = true;
+char uart6_tx_byte_buff[1];
 
+bool UART6_RX_IsReady = false;
+char uart6_rx_byte_buff[1];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -56,6 +63,73 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/**
+ * @brief Пытается отправить данные из кольцевого буфера
+ */
+void UART6_TryToTransmit_IT() {
+  if (UART6_TX_IsReady && !RingBuffer_IsEmpty(&uart6_tx_buff)) {
+    RingBuffer_Read(&uart6_tx_buff, uart6_tx_byte_buff, 1);
+    UART6_TX_IsReady = false;
+    HAL_UART_Transmit_IT(&huart6, (uint8_t*) uart6_tx_byte_buff, 1);
+  } 
+}
+
+/**
+ * @brief Отправляет байт в режиме прерываний
+ * @return true - байт записан в буфер отправки
+ * @return false - буфер отправки переполнен
+ */
+bool UART6_TransmitByte(char byte) {
+  bool result = false;
+  if (!uart6_tx_buff.isFull) {
+      RingBuffer_Write(&uart6_tx_buff, &byte, 1);
+      result = true;
+    }
+  return result;
+}
+
+/**
+ * @brief Получает байт по uart
+ * @return true - данные получены
+ * @return false - новых данных нет
+ */
+bool UART6_ReceiveByte(char* byte_ptr) {
+  bool result = false;
+  if (UART6_RX_IsReady) {
+      *byte_ptr = *uart6_rx_byte_buff;
+      UART6_RX_IsReady = false;
+      result = true;
+  } else {
+    HAL_UART_Receive_IT(&huart6, (uint8_t*) uart6_rx_byte_buff, 1);
+  }
+  return result;
+}
+
+/**
+ * @brief Получает байт по uart
+ * @return true - данные записан в буфер отправки
+ * @return false - буфер отправки переполнен
+ */
+bool UART6_TransmitString(char* str) {
+  bool result = false;
+  if (!uart6_tx_buff.isFull) {
+    RingBuffer_Write(&uart6_tx_buff, str, strlen(str));
+  }
+  return result;
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef* UartHandle) {
+  if (UartHandle == &huart6) {
+    UART6_RX_IsReady = true;
+  }
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef* UartHandle) {
+  if (UartHandle == &huart6) {
+    UART6_TX_IsReady = true;
+  }
+}
+
 
 /* USER CODE END 0 */
 
