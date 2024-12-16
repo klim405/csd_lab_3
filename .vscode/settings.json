@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "ring_buffer.h": "c",
-        "cmath": "c"
+        "cmath": "c",
+        "tim.h": "c"
     }
 }

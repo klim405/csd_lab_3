@@ -25,6 +25,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "ring_buffer.h"
+#include "sounds.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -40,7 +41,7 @@
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 #define TX6_BUFFER_SIZE 100
-
+#define DEFAULT_BUZZER_VOLUME 10
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -53,6 +54,8 @@ char uart6_tx_byte_buff[1];
 
 bool UART6_RX_IsReady = false;
 char uart6_rx_byte_buff[1];
+
+uint32_t Buzzer_Volume = DEFAULT_BUZZER_VOLUME;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -130,6 +133,28 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef* UartHandle) {
   }
 }
 
+/**
+ * @brief Воспроизводит заданную ноту на звукоизлучателе
+ * @param octave номер октавы
+ * @param note номер ноты в октаве
+ */
+void Buzzer_SetSound(int8_t octave, int8_t note) {
+  htim1.Instance->ARR = (uint32_t) Sounds_CalcPeriodInNs(octave, note);
+  htim1.Instance->CNT = 0;
+  htim1.Instance->CCR1 = htim1.Instance->ARR / 20 * Buzzer_Volume;
+}
+
+/**
+ * @brief Воспроизводит заданную ноту на звукоизлучателе
+ * @param val громкость от 0 до 10
+ */
+void Buzzer_SetVolume(uint32_t val) {
+  if (val > 10) {
+    val = 10;
+  }
+  Buzzer_Volume = val;
+  htim1.Instance->CCR1 = htim1.Instance->ARR / 20 * Buzzer_Volume;
+}
 
 /* USER CODE END 0 */
 
