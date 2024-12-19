@@ -42,6 +42,8 @@
 /* USER CODE BEGIN PM */
 #define TX6_BUFFER_SIZE 100
 #define DEFAULT_BUZZER_VOLUME 10
+#define CUSTOM_MUSIC_LENGTH 50
+#define NOTE_TIC_DURATION_IN_MILIS 100
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -56,6 +58,40 @@ bool UART6_RX_IsReady = false;
 char uart6_rx_byte_buff[1];
 
 uint32_t Buzzer_Volume = DEFAULT_BUZZER_VOLUME;
+
+char CustomMusic[CUSTOM_MUSIC_LENGTH * 3 + 1] = { '\0' };
+char* MusicList[5] = {
+  "", 
+  "", 
+  "", 
+  "", 
+  CustomMusic
+};
+
+struct __MusicPlayer {
+  char * next_sound;
+  int8_t current_sound_duration;
+  int8_t current_sound_playing_time;
+  bool is_playing;
+} typedef MusicPlayer;
+
+MusicPlayer player = { 0, 0, 0, false };
+
+enum __UserInputState {
+  WAIT_MUSIC_NUMBER = 0,
+  WAIT_NOTE,
+  WAIT_OCTAVE,
+  WAIT_DURATION
+} typedef UserInputState;
+
+struct __UserInput {
+  UserInputState status;
+  char* current_sound;
+  int32_t current_sound_number;
+} typedef UserInputTypedef;
+
+UserInputTypedef UserInput;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -156,6 +192,108 @@ void Buzzer_SetVolume(uint32_t val) {
   htim1.Instance->CCR1 = htim1.Instance->ARR / 20 * Buzzer_Volume;
 }
 
+/**
+ * @brief Отключает динамик.
+ * @note Таймер динамика не отключается. Заполнение ШИМ ~0%
+ */
+void Buzzer_Stop() {
+  htim1.Instance->CCR1 = 1;
+}
+
+/**
+ * @brief Запускает музыку из памяти.
+ * @param number Номер музыкальной дорожки.
+ */
+void MusicPlayer_RunMusic(int8_t number) {
+  player.next_sound = MusicList[number];
+}
+
+/**
+ * @brief Останавливает проигрывание музыки.
+ */
+void MusicPlayer_Stop() {
+  player.is_playing = false;
+  Buzzer_Stop();
+}
+
+/**
+ * @brief Запускает следующий звук, если он есть.
+ */
+void MusicPlayer_PlayNextSound() {
+  int8_t note;
+  int8_t octave;
+  if (*player.next_sound != '\0') {
+    note = Sounds_ParseNote(player.next_sound[0]);
+    octave = (player.next_sound[1] - '0');
+    Buzzer_SetSound(octave, note);
+    player.current_sound_duration = player.next_sound[2] * NOTE_TIC_DURATION_IN_MILIS;
+    player.current_sound_playing_time = 0;
+    player.next_sound = player.next_sound + 3;
+  } else {
+    MusicPlayer_Stop();
+  }
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+  if (htim == &htim6) {
+    if (player.is_playing) {
+      if (player.current_sound_playing_time < player.current_sound_duration) {
+        ++player.current_sound_playing_time;
+      } else {
+        MusicPlayer_PlayNextSound();
+      }
+    }
+  }
+}
+
+void UserInput_ProcessInput(char sym) {
+  switch (UserInput.status) {
+  case WAIT_MUSIC_NUMBER:
+  UART6_TransmitByte(sym);
+    if ('0' < sym && sym <= '5') {
+      MusicPlayer_RunMusic(sym - '0');
+    } else if (sym == '\n' || sym == '\r') {
+      MusicPlayer_Stop();
+      UserInput.status = WAIT_NOTE;
+      UserInput.current_sound = CustomMusic;
+      UserInput.current_sound_number = 0;
+    }
+    break;
+  case WAIT_NOTE:
+    if (UserInput.current_sound_number >= CUSTOM_MUSIC_LENGTH) {
+      UART6_ReceiveByte("Song register is full. Music was saved.\nEnter music number:\n");
+      UserInput.status = WAIT_MUSIC_NUMBER;
+      break;
+    }
+    if (Sounds_ParseNote(sym) >= 0) {
+      UserInput.current_sound[0] = sym;
+      UART6_ReceiveByte(sym);
+      UserInput.status = WAIT_OCTAVE;
+    } else if (sym == 'q' || sym == 's') {
+      UserInput.current_sound[0] = '\0';
+      UART6_ReceiveByte("Music was saved.\nEnter music number:\n");
+      UserInput.status = WAIT_MUSIC_NUMBER;
+    }
+    break;
+  case WAIT_OCTAVE:
+    if ('0' <= sym <= '9') {
+      UserInput.current_sound[1] = sym;
+      UART6_ReceiveByte(sym);
+      UserInput.status = WAIT_DURATION;
+    }
+    break;
+  case WAIT_DURATION:
+    if ('1' <= sym <= '9') {
+      UserInput.current_sound[2] = sym;
+      UART6_ReceiveByte(sym);
+      UserInput.current_sound = UserInput.current_sound + 3;
+      ++UserInput.current_sound_number;
+      UserInput.status = WAIT_NOTE;
+    }
+    break;
+  }
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -175,7 +313,8 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  RingBuffer_Init(&uart6_tx_buff, __uart6_tx_buff, TX6_BUFFER_SIZE);
+  HAL_TIM_Base_Start_IT(&htim6);
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -196,10 +335,14 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  char cuurent_sym;
   while (1)
   {
     /* USER CODE END WHILE */
-
+    UART6_TryToTransmit_IT();
+    if (UART6_ReceiveByte(&cuurent_sym)) {
+      UserInput_ProcessInput(cuurent_sym);
+    }
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
