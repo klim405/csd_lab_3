@@ -61,17 +61,17 @@ uint32_t Buzzer_Volume = DEFAULT_BUZZER_VOLUME;
 
 char CustomMusic[CUSTOM_MUSIC_LENGTH * 3 + 1] = { '\0' };
 char* MusicList[5] = {
-  "", 
-  "", 
-  "", 
+  "C45A45A45G45A45F45C45C45C45A45A45a45G45C55C55D45D45a45a45A45G45F45C45A45A45G45A45F45", 
+  "C79D73E73F73G73A73H73C89D83E83F83G83A83H83C99D93E93F93G93A93H93",
+  "",
   "", 
   CustomMusic
 };
 
 struct __MusicPlayer {
-  char * next_sound;
-  int8_t current_sound_duration;
-  int8_t current_sound_playing_time;
+  volatile char * next_sound;
+  uint16_t current_sound_duration;
+  uint16_t current_sound_playing_time;
   bool is_playing;
 } typedef MusicPlayer;
 
@@ -177,7 +177,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef* UartHandle) {
 void Buzzer_SetSound(int8_t octave, int8_t note) {
   htim1.Instance->ARR = (uint32_t) Sounds_CalcPeriodInNs(octave, note);
   htim1.Instance->CNT = 0;
-  htim1.Instance->CCR1 = htim1.Instance->ARR / 20 * Buzzer_Volume;
+  htim1.Instance->CCR1 = (htim1.Instance->ARR / 20) * Buzzer_Volume;
 }
 
 /**
@@ -189,7 +189,7 @@ void Buzzer_SetVolume(uint32_t val) {
     val = 10;
   }
   Buzzer_Volume = val;
-  htim1.Instance->CCR1 = htim1.Instance->ARR / 20 * Buzzer_Volume;
+  htim1.Instance->CCR1 = (htim1.Instance->ARR / 20) * Buzzer_Volume;
 }
 
 /**
@@ -198,14 +198,6 @@ void Buzzer_SetVolume(uint32_t val) {
  */
 void Buzzer_Stop() {
   htim1.Instance->CCR1 = 1;
-}
-
-/**
- * @brief Запускает музыку из памяти.
- * @param number Номер музыкальной дорожки.
- */
-void MusicPlayer_RunMusic(int8_t number) {
-  player.next_sound = MusicList[number];
 }
 
 /**
@@ -223,19 +215,33 @@ void MusicPlayer_PlayNextSound() {
   int8_t note;
   int8_t octave;
   if (*player.next_sound != '\0') {
+	  UART6_TransmitByte(player.next_sound[0]);
+	  UART6_TransmitByte(player.next_sound[1]);
+	  UART6_TransmitByte(player.next_sound[2]);
+	  UART6_TransmitByte('\n');
     note = Sounds_ParseNote(player.next_sound[0]);
     octave = (player.next_sound[1] - '0');
-    Buzzer_SetSound(octave, note);
-    player.current_sound_duration = player.next_sound[2] * NOTE_TIC_DURATION_IN_MILIS;
+    player.current_sound_duration = (player.next_sound[2] - '0') * NOTE_TIC_DURATION_IN_MILIS;
     player.current_sound_playing_time = 0;
     player.next_sound = player.next_sound + 3;
+    Buzzer_SetSound(octave, note);
   } else {
     MusicPlayer_Stop();
   }
 }
 
+/**
+ * @brief Запускает музыку из памяти.
+ * @param number Номер музыкальной дорожки.
+ */
+void MusicPlayer_RunMusic(int8_t number) {
+  player.next_sound = MusicList[number - 1];
+  player.is_playing = true;
+  MusicPlayer_PlayNextSound();
+}
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-  if (htim == &htim6) {
+  if (htim->Instance == TIM6) {
     if (player.is_playing) {
       if (player.current_sound_playing_time < player.current_sound_duration) {
         ++player.current_sound_playing_time;
@@ -251,6 +257,9 @@ void UserInput_ProcessInput(char sym) {
   case WAIT_MUSIC_NUMBER:
   UART6_TransmitByte(sym);
     if ('0' < sym && sym <= '5') {
+      UART6_TransmitString("\nPlay music ");
+      UART6_TransmitByte(sym);
+      UART6_TransmitByte('\n');
       MusicPlayer_RunMusic(sym - '0');
     } else if (sym == '\n' || sym == '\r') {
       MusicPlayer_Stop();
@@ -314,7 +323,6 @@ int main(void)
 
   /* USER CODE BEGIN Init */
   RingBuffer_Init(&uart6_tx_buff, __uart6_tx_buff, TX6_BUFFER_SIZE);
-  HAL_TIM_Base_Start_IT(&htim6);
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -330,7 +338,8 @@ int main(void)
   MX_TIM6_Init();
   MX_USART6_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_TIM_Base_Start_IT(&htim6);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -338,11 +347,12 @@ int main(void)
   char cuurent_sym;
   while (1)
   {
-    /* USER CODE END WHILE */
     UART6_TryToTransmit_IT();
     if (UART6_ReceiveByte(&cuurent_sym)) {
       UserInput_ProcessInput(cuurent_sym);
     }
+    /* USER CODE END WHILE */
+
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
