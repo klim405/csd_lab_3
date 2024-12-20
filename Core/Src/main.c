@@ -255,13 +255,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 void UserInput_ProcessInput(char sym) {
   switch (UserInput.status) {
   case WAIT_MUSIC_NUMBER:
-  UART6_TransmitByte(sym);
+    UART6_TransmitByte(sym);
     if ('0' < sym && sym <= '5') {
       UART6_TransmitString("\nPlay music ");
       UART6_TransmitByte(sym);
       UART6_TransmitByte('\n');
       MusicPlayer_RunMusic(sym - '0');
     } else if (sym == '\n' || sym == '\r') {
+      UART6_TransmitString("\nEnter your music:\n");
       MusicPlayer_Stop();
       UserInput.status = WAIT_NOTE;
       UserInput.current_sound = CustomMusic;
@@ -270,31 +271,32 @@ void UserInput_ProcessInput(char sym) {
     break;
   case WAIT_NOTE:
     if (UserInput.current_sound_number >= CUSTOM_MUSIC_LENGTH) {
-      UART6_ReceiveByte("Song register is full. Music was saved.\nEnter music number:\n");
+      UART6_TransmitString("Song register is full. Music was saved.\nEnter music number:\n");
       UserInput.status = WAIT_MUSIC_NUMBER;
       break;
     }
     if (Sounds_ParseNote(sym) >= 0) {
       UserInput.current_sound[0] = sym;
-      UART6_ReceiveByte(sym);
+      UART6_TransmitByte(sym);
       UserInput.status = WAIT_OCTAVE;
     } else if (sym == 'q' || sym == 's') {
       UserInput.current_sound[0] = '\0';
-      UART6_ReceiveByte("Music was saved.\nEnter music number:\n");
+      UART6_TransmitString("Music was saved.\nEnter music number:\n");
       UserInput.status = WAIT_MUSIC_NUMBER;
     }
     break;
   case WAIT_OCTAVE:
     if ('0' <= sym <= '9') {
       UserInput.current_sound[1] = sym;
-      UART6_ReceiveByte(sym);
+      UART6_TransmitByte(sym);
       UserInput.status = WAIT_DURATION;
     }
     break;
   case WAIT_DURATION:
     if ('1' <= sym <= '9') {
       UserInput.current_sound[2] = sym;
-      UART6_ReceiveByte(sym);
+      UART6_TransmitByte(sym);
+      UART6_TransmitByte('\n');
       UserInput.current_sound = UserInput.current_sound + 3;
       ++UserInput.current_sound_number;
       UserInput.status = WAIT_NOTE;
