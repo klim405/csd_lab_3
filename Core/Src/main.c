@@ -124,6 +124,7 @@ bool UART6_TransmitByte(char byte) {
       RingBuffer_Write(&uart6_tx_buff, &byte, 1);
       result = true;
     }
+  UART6_TryToTransmit_IT();
   return result;
 }
 
@@ -154,6 +155,7 @@ bool UART6_TransmitString(char* str) {
   if (!uart6_tx_buff.isFull) {
     RingBuffer_Write(&uart6_tx_buff, str, strlen(str));
   }
+  UART6_TryToTransmit_IT();
   return result;
 }
 
@@ -165,7 +167,12 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef* UartHandle) {
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef* UartHandle) {
   if (UartHandle == &huart6) {
-    UART6_TX_IsReady = true;
+    if (!RingBuffer_IsEmpty(&uart6_tx_buff)) {
+      RingBuffer_Read(&uart6_tx_buff, uart6_tx_byte_buff, 1);
+      HAL_UART_Transmit_IT(&huart6, (uint8_t*) uart6_tx_byte_buff, 1);
+    } else {
+      UART6_TX_IsReady = true;
+    }
   }
 }
 
@@ -347,9 +354,7 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   char cuurent_sym;
-  while (1)
-  {
-    UART6_TryToTransmit_IT();
+  while (1) {
     if (UART6_ReceiveByte(&cuurent_sym)) {
       UserInput_ProcessInput(cuurent_sym);
     }
